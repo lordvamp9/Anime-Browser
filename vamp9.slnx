@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="vamp9.AnimeDashboard/vamp9.AnimeDashboard.csproj" />
+  <Project Path="vamp9.AnimeSetup/vamp9.AnimeSetup.csproj" />
+</Solution>

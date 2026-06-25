@@ -1,0 +1,52 @@
+# .gitignore definitivo para vamp9 Anime Suite (WPF / .NET 8)
+
+# Carpeta de build final (donde se exportan los ejecutables listos)
+build/
+
+# Bases de datos y archivos locales de datos del usuario
+**/anime_db.json
+**/anime_db.json.backup
+**/history.db
+
+# Directorios de compilación de .NET
+**/bin/
+**/obj/
+[Bb]in/
+[Oo]bj/
+
+# Ejecutables y librerías generados
+*.exe
+*.dll
+*.pdb
+*.msi
+*.msix
+*.appx
+
+# Archivos de configuración locales / de usuario de Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Caché de herramientas de empaquetado y restauración
+*.nuget.dgspec.json
+*.nuget.g.props
+*.nuget.g.targets
+project.assets.json
+
+# Archivos temporales y cachés del sistema operativo
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.tmp
+*.log
+
+# Archivos de caché del compilador y profiling
+*.VC.db
+*.opendb
+*.pf
+*.gcda
+*.gcno
+*.txt
