@@ -224,7 +224,7 @@
                                     </Button>
                                 </Grid>
                             </Border>
-                        </Grid>d>
+                        </Grid>
                         
                         <DataGrid x:Name="SearchResultsGrid" Grid.Row="1" Background="#11FFFFFF" Foreground="White" RowBackground="#22FFFFFF" AlternatingRowBackground="#11FFFFFF" BorderThickness="0" AutoGenerateColumns="False" HeadersVisibility="Column" GridLinesVisibility="None" IsReadOnly="True" SelectionMode="Single" CanUserReorderColumns="False" CanUserResizeColumns="False">
                             <DataGrid.Resources>
