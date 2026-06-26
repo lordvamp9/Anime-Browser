@@ -9,7 +9,7 @@ Esta suite de software proporciona una interfaz gráfica nativa basada en C# y W
 
 ## Características y Módulos
 * **vamp9.AnimeSetup**: Asistente de instalación automatizado que configura el entorno WSL, instala dependencias (como yt-dlp) y prepara MPV de forma silenciosa.
-* **vamp9.AnimeDashboard**: Panel principal de búsqueda y reproducción. Ofrece soporte bilingüe con filtros integrados para usar el motor de búsqueda en español (ani-es) o en inglés (ani-cli).
+* **vamp9.AnimeDashboard**: Panel principal de búsqueda y reproducción.
 
 ## Arquitectura e Interoperabilidad
 * Comunicación delegada mediante llamadas de procesos a `wsl.exe`.
