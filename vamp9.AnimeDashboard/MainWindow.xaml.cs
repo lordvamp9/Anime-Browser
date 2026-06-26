@@ -64,6 +64,7 @@ namespace vamp9.AnimeDashboard
             pageEnter.Begin(ViewActive);
             pageEnter.Begin(ViewHistory);
             pageEnter.Begin(ViewSettings);
+            pageEnter.Begin(ViewDownloads);
         }
 
         private void HideAllViews()
@@ -73,6 +74,7 @@ namespace vamp9.AnimeDashboard
             ViewActive.Visibility = Visibility.Collapsed;
             ViewHistory.Visibility = Visibility.Collapsed;
             ViewSettings.Visibility = Visibility.Collapsed;
+            ViewDownloads.Visibility = Visibility.Collapsed;
         }
 
         private void Nav_Browser_Click(object sender, RoutedEventArgs e)
@@ -103,6 +105,13 @@ namespace vamp9.AnimeDashboard
             HideAllViews();
             LoadData();
             ViewHistory.Visibility = Visibility.Visible;
+            TriggerPageAnimation();
+        }
+
+        private void Nav_Downloads_Click(object sender, RoutedEventArgs e)
+        {
+            HideAllViews();
+            ViewDownloads.Visibility = Visibility.Visible;
             TriggerPageAnimation();
         }
 
@@ -197,13 +206,100 @@ namespace vamp9.AnimeDashboard
             }
         }
 
+        private async void DownloadSearchBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter && !string.IsNullOrWhiteSpace(DownloadSearchBox.Text))
+            {
+                await PerformDownloadSearch(DownloadSearchBox.Text);
+            }
+        }
+
+        private async void DownloadSearchButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (!string.IsNullOrWhiteSpace(DownloadSearchBox.Text))
+            {
+                await PerformDownloadSearch(DownloadSearchBox.Text);
+            }
+        }
+
+        private async Task PerformDownloadSearch(string query)
+        {
+            string sanitizedQuery = new string(query.Where(c => char.IsLetterOrDigit(c) || c == ' ' || c == '-' || c == '_').ToArray());
+            DownloadLoadingText.Visibility = Visibility.Visible;
+            DownloadResultsGrid.ItemsSource = null;
+
+            try
+            {
+                string tempScriptPath = Path.Combine(Path.GetTempPath(), "ani-es-search.sh");
+                string scriptContent = "#!/bin/bash\n" +
+                                       "query=$(echo \"$1\" | tr ' ' '_')\n" +
+                                       "wget -q --user-agent=\"Mozilla/5.0 (Windows NT 10.0; Win64; x64)\" -O - \"https://jkanime.net/buscar/$query/\" | grep -oP '<h5><a\\s+href=\"[^\"]*\">\\K.*?(?=</a></h5>)' | sed 's/&quot;//g'\n";
+                File.WriteAllText(tempScriptPath, scriptContent.Replace("\r\n", "\n"));
+                string wslScriptPath = tempScriptPath.Replace("\\", "/");
+                if (wslScriptPath.Length > 2 && wslScriptPath[1] == ':')
+                {
+                    char drive = char.ToLower(wslScriptPath[0]);
+                    wslScriptPath = $"/mnt/{drive}{wslScriptPath.Substring(2)}";
+                }
+
+                var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "wsl",
+                        Arguments = $"-- bash \"{wslScriptPath}\" \"{sanitizedQuery}\"",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    }
+                };
+
+                process.Start();
+                string output = await process.StandardOutput.ReadToEndAsync();
+                process.WaitForExit();
+
+                var results = new List<AnimeEntry>();
+                if (!string.IsNullOrEmpty(output))
+                {
+                    var lines = output.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var line in lines)
+                    {
+                        var trimmed = line.Trim();
+                        if (!string.IsNullOrEmpty(trimmed) && trimmed != "Salir" && trimmed != "Siguiente" && trimmed != "Anterior")
+                        {
+                            results.Add(new AnimeEntry { Name = trimmed });
+                        }
+                    }
+                }
+                if (results.Count == 0) results.Add(new AnimeEntry { Name = query });
+                DownloadResultsGrid.ItemsSource = results;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error en búsqueda: " + ex.Message);
+            }
+            finally
+            {
+                DownloadLoadingText.Visibility = Visibility.Collapsed;
+            }
+        }
+
         private void PlayAnime_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button btn && btn.Tag is string animeName)
             {
                 _lastPlayedAnime = animeName;
                 bool isContinue = ViewActive.Visibility == Visibility.Visible || ViewHistory.Visibility == Visibility.Visible;
-                LaunchAnime(animeName, isContinue);
+                LaunchAnime(animeName, isContinue, false);
+            }
+        }
+
+        private void DownloadAnime_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is string animeName)
+            {
+                LaunchAnime(animeName, false, true);
             }
         }
 
@@ -216,14 +312,35 @@ namespace vamp9.AnimeDashboard
             }
         }
 
-        private void LaunchAnime(string animeName, bool isContinue = false)
+        private void LaunchAnime(string animeName, bool isContinue = false, bool isDownload = false)
         {
             try
             {
-                // Escapar comillas simples para evitar inyección de comandos en bash
                 string escapedName = animeName.Replace("'", "'\\''");
                 string client = "ani-es";
-                string args = isContinue ? $"/c start wsl -e bash -ic \"{client} -c '{escapedName}'\"" : $"/c start wsl -e bash -ic \"{client} '{escapedName}'\"";
+                string args = "";
+                
+                if (isDownload)
+                {
+                    // Guardar los archivos de descarga localmente en la carpeta de la app para fácil acceso del usuario
+                    string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                    string downloadDir = Path.Combine(baseDir, "Descargas");
+                    Directory.CreateDirectory(downloadDir);
+                    
+                    // Convertir ruta Windows a WSL /mnt/c/...
+                    string wslDownloadPath = downloadDir.Replace("\\", "/");
+                    if (wslDownloadPath.Length > 2 && wslDownloadPath[1] == ':')
+                    {
+                        char drive = char.ToLower(wslDownloadPath[0]);
+                        wslDownloadPath = $"/mnt/{drive}{wslDownloadPath.Substring(2)}";
+                    }
+                    args = $"/c start wsl -e bash -ic \"cd '{wslDownloadPath}'; {client} -d '{escapedName}'\"";
+                }
+                else
+                {
+                    args = isContinue ? $"/c start wsl -e bash -ic \"{client} -c '{escapedName}'\"" : $"/c start wsl -e bash -ic \"{client} '{escapedName}'\"";
+                }
+                
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = "cmd",
@@ -286,11 +403,71 @@ namespace vamp9.AnimeDashboard
             SettingsMainPanel.Visibility = Visibility.Visible;
         }
 
-        private void BtnCustome_Click(object sender, RoutedEventArgs e)
+        private void BtnProfilePerformance_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                string mpvConfContent = @"profile=high-quality
+            string profile = @"profile=fast
+vo=gpu
+hwdec=auto-safe
+vd-lavc-fast=yes
+fs=yes
+save-position-on-quit=yes
+keep-open=yes
+autofit=75%
+cache=yes
+dns-lookups-family=ipv4
+sub-font='Trebuchet MS'
+sub-font-size=50
+sub-color='#FFFFFF'
+sub-border-color='#000000'
+sub-border-size=3.5
+sub-shadow-offset=0
+sub-spacing=0.5
+sub-margin-y=45
+sub-ass-override=force
+sub-style-to-old=yes
+embeddedfonts=no
+osc=yes
+osd-font='Arial'
+osd-blur=0.2
+osd-color='#FFFFFF'";
+            SaveMpvConf(profile, "Rendimiento");
+        }
+
+        private void BtnProfileStandard_Click(object sender, RoutedEventArgs e)
+        {
+            string profile = @"profile=fast
+vo=gpu
+hwdec=auto-safe
+fs=yes
+save-position-on-quit=yes
+keep-open=yes
+autofit=75%
+cache=yes
+demuxer-max-bytes=1500MiB
+demuxer-max-back-bytes=500MiB
+cache-secs=1200
+dns-lookups-family=ipv4
+sub-font='Trebuchet MS'
+sub-font-size=50
+sub-color='#FFFFFF'
+sub-border-color='#000000'
+sub-border-size=3.5
+sub-shadow-offset=0
+sub-spacing=0.5
+sub-margin-y=45
+sub-ass-override=force
+sub-style-to-old=yes
+embeddedfonts=no
+osc=yes
+osd-font='Arial'
+osd-blur=0.2
+osd-color='#FFFFFF'";
+            SaveMpvConf(profile, "Estándar (Caché Masiva)");
+        }
+
+        private void BtnProfileQuality_Click(object sender, RoutedEventArgs e)
+        {
+            string profile = @"profile=high-quality
 vo=gpu
 hwdec=auto-safe
 fs=yes
@@ -300,6 +477,7 @@ autofit=75%
 cache=yes
 demuxer-max-bytes=150MiB
 demuxer-max-back-bytes=50MiB
+dns-lookups-family=ipv4
 sub-font='Trebuchet MS'
 sub-font-size=50
 sub-color='#FFFFFF'
@@ -325,26 +503,25 @@ deband=yes
 deband-iterations=4
 deband-threshold=48
 deband-range=16
-deband-grain=5
-script-opts=osc-layout=bottombar
-script-opts-append=osc-seekbarstyle=bar
-script-opts-append=osc-hidetimeout=2000
-script-opts-append=osc-scalewindowout=1.2
-script-opts-append=osc-timetotal=yes";
+deband-grain=5";
+            SaveMpvConf(profile, "Calidad Premium");
+        }
 
+        private void SaveMpvConf(string mpvConfContent, string profileName)
+        {
+            try
+            {
                 string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
                 
-                // 1. MPV real path (para que funcione con mpv.exe)
                 string mpvPath = Path.Combine(appData, "mpv");
                 Directory.CreateDirectory(mpvPath);
                 File.WriteAllText(Path.Combine(mpvPath, "mpv.conf"), mpvConfContent);
 
-                // 2. MVP path (pedido literal)
                 string mvpPath = Path.Combine(appData, "mvp");
                 Directory.CreateDirectory(mvpPath);
                 File.WriteAllText(Path.Combine(mvpPath, "mvp.conf"), mpvConfContent);
 
-                SettingsStatusText.Text = "¡Configuración premium guardada con éxito en AppData/mpv y AppData/mvp!";
+                SettingsStatusText.Text = $"¡Perfil {profileName} guardado con éxito en AppData/mpv!";
                 SettingsStatusText.Visibility = Visibility.Visible;
             }
             catch (Exception ex)
@@ -361,7 +538,7 @@ script-opts-append=osc-timetotal=yes";
             // Si el archivo no existe, generarlo primero con el default
             if (!File.Exists(mpvConfPath))
             {
-                BtnCustome_Click(null, null);
+                BtnProfileStandard_Click(null, null);
             }
 
             if (File.Exists(mpvConfPath))

@@ -169,9 +169,27 @@ namespace vamp9.AnimeSetup
                 await RunProcessAsync("wsl", $"-- rm -rf {userHome}/ani-es");
                 await RunProcessAsync("wsl", $"-- mkdir -p {userHome}/ani-es");
 
-                // Intentar descargar por curl (rápido y seguro)
-                Log("Descargando scripts mediante curl...");
-                int curlEsCode = await RunProcessAsync("wsl", $"-- curl -sSL https://raw.githubusercontent.com/Zhuchii/ani-es/main/ani-es -o {userHome}/ani-es/ani-es");
+                // Usar versión parcheada con soporte de descargas y smart player
+                Log("Instalando versión parcheada de ani-es (Smart Player & Descargas)...");
+                string localPatched = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ani-es-patched.sh");
+                int curlEsCode = 1;
+                
+                if (File.Exists(localPatched))
+                {
+                    string wslPatched = localPatched.Replace("\\", "/");
+                    if (wslPatched.Length > 2 && wslPatched[1] == ':')
+                    {
+                        wslPatched = $"/mnt/{char.ToLower(wslPatched[0])}{wslPatched.Substring(2)}";
+                    }
+                    curlEsCode = await RunProcessAsync("wsl", $"-- cp '{wslPatched}' {userHome}/ani-es/ani-es");
+                }
+                
+                if (curlEsCode != 0)
+                {
+                    Log("Archivo parcheado no encontrado, usando versión original de github...");
+                    curlEsCode = await RunProcessAsync("wsl", $"-- curl -sSL https://raw.githubusercontent.com/Zhuchii/ani-es/main/ani-es -o {userHome}/ani-es/ani-es");
+                }
+                
                 int curlJsonCode = await RunProcessAsync("wsl", $"-- curl -sSL https://raw.githubusercontent.com/Zhuchii/ani-es/main/excepciones.json -o {userHome}/ani-es/excepciones.json");
 
                 bool curlSuccess = (curlEsCode == 0 && curlJsonCode == 0);

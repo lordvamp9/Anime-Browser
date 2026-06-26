@@ -1,0 +1,764 @@
+#!/bin/bash
+
+VERSION="1.3.1"
+
+CONTINUE=0
+progress="00:00:00"
+
+# cosas para texto
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+WHITE='\033[0;37m'
+
+# cosas para el fondo del texto
+BG_RED='\033[41m'
+BG_GREEN='\033[42m'
+BG_YELLOW='\033[43m'
+BG_BLUE='\033[44m'
+BG_PURPLE='\033[45m'
+BG_CYAN='\033[46m'
+BG_WHITE='\033[47m'
+
+
+NC='\033[0m'
+
+
+show_help() {
+    echo ""
+    echo "    Uso: ani-es [opciones] [busqueda]"
+    echo ""
+    echo "    Opciones:"
+    echo "      -h, --help       Mostrar ayuda"
+    echo "      -v, --version    Mostrar versión"
+    echo "      -c, --continue   Continua el anime en donde ultimo lo dejaste"
+    echo ""
+}
+
+show_version() {
+    echo -e "ani-es ${PURPLE}v${VERSION}${NC}"
+}
+
+# parseo de argumentos
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -v|--version)
+            show_version
+            exit 0
+            ;;
+        -c|--continue)
+            CONTINUE=1
+            ;;
+        -d|--download)
+            DOWNLOAD=1
+            ;;
+        *)
+            break
+            ;;
+    esac
+    shift
+done
+
+
+arg1="$*"
+
+
+check_dependencies() {
+    local script_name
+    script_name=$(basename "$0")
+    local missing=()
+
+    for cmd in "$@"; do
+        if ! command -v "$cmd" &> /dev/null; then
+            missing+=("$cmd")
+        fi
+    done
+
+    if [ ${#missing[@]} -ne 0 ]; then
+        echo -e "${CYAN}[$script_name]${RED} Dependencias faltantes:${NC}"
+        for pkg in "${missing[@]}"; do
+            echo -e "${CYAN}  - $pkg ${NC}"
+        done
+        echo -e "${GREEN}Ejecuta el instalador antes de usar este script.${NC}"
+        exit 1
+    fi
+}
+
+detect_env() {
+    # WSL (1 o 2)
+    if grep -qi microsoft /proc/version 2>/dev/null || [ -n "$WSL_DISTRO_NAME" ]; then
+        echo "wsl"
+    # Termux (Android)
+    elif [ -n "$PREFIX" ] && [[ "$PREFIX" == *com.termux* ]]; then
+        echo "termux"
+    # Linux normal
+    else
+        echo "linux"
+    fi
+}
+
+main() {
+
+urlo="https://raw.githubusercontent.com/Zhuchii/ani-es/refs/heads/main/ani-es"
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+ARCHIVO="$SCRIPT_DIR/ani-es"
+
+echo -e ${BLUE}Verificando actualizaciones disponibles...${NC}
+actualizado=$(curl -s "$urlo")
+actual=$(cat "$ARCHIVO")
+
+update="$(curl -s "https://raw.githubusercontent.com/Zhuchii/ani-es/refs/heads/main/ani-es")"
+if [ "$update" != "$(cat "$ARCHIVO")" ]; then
+    echo -n -e "${CYAN}Hay una actualizacion disponible se recomienda actualizar para garantizar que el script funcine correctamente (y/n) ${NC}"
+    read ele
+    if [ "$ele" == "y" ];then
+    diff -u "$ARCHIVO" <(echo "$update") | sudo patch "$ARCHIVO" > /dev/null 2>&1- && echo -e "${CYAN}El script ha sido actualizado${NC}" || echo -e "${RED}Ha ocurrido un error mientras se actualizaba el script${NC}"
+    exit 0
+    fi
+else
+    echo "Script actualizado"
+fi
+
+clear
+
+check_dependencies wget fzf grep sed python3 mpv jq curl
+
+pagina_siguiente() {
+
+clear 
+  local url=$1
+
+new_urls=$(python3 - <<END
+
+try:
+  url = "$url"
+
+  lista = url.split('/')
+
+  lista[-2]=int(lista[-2])+1
+
+  new_url=''
+
+  for i in lista:
+      new_url+=f'{i}/'
+  new_url=new_url[:-1]
+  print(new_url)
+except:
+ x=1+1
+END
+)
+
+new_dict=$(python3 - <<END
+try:
+  url = "$url"
+
+  lista = url.split('/')
+
+  lista[-2]=int(lista[-2])+1
+
+  new_url=''
+  del(lista[0])
+  for i in lista:
+      new_url+=f'{i}/'
+  new_url=new_url[1:][:-1]
+
+  print(new_url+'index.html')
+except:
+ x=1+1
+END
+)
+
+new_number=$(python3 - <<END
+try:
+  url = "$url"
+
+  lista = url.split('/')
+
+  pepe=int(lista[-2])+1
+
+  print(pepe)
+
+except:
+ x=1+1
+END
+)
+
+
+rm -r jkanime.net
+
+wget --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" -p $new_urls wget > /dev/null 2>&1
+
+rm -r resultados.txt
+
+grep -oP '(?<=<div class="title">)[^<]+(?=</div>)' $new_dict > resultados.txt
+
+
+num_resultados=$(wc -l < resultados.txt)
+
+echo -e "Pagina: $new_number ${NC}"
+
+echo -e "Resultados para: $query"
+
+opcion=$( (cat "resultados.txt"; echo -e "Siguiente"; echo "Anterior"; echo "Salir") | tac | fzf --prompt="Selecciona una opción: " --height=19 --border --info=inline --margin=1,1,0,0)
+
+
+if [[ "$opcion" == "Siguiente" ]]; then
+  pagina_siguiente $new_urls
+elif [[ "$opcion" == "Anterior" ]]; then
+  pagina_anterior $new_urls
+elif [[ "$opcion" == "Salir" ]]; then
+  clear
+  main
+fi
+
+}
+
+pagina_anterior() {
+
+clear 
+  local url=$1
+
+new_urls=$(python3 - <<END
+
+try:
+  url = "$url"
+
+  lista = url.split('/')
+
+  lista[-2]=int(lista[-2])-1
+
+  new_url=''
+
+  for i in lista:
+      new_url+=f'{i}/'
+  new_url=new_url[:-1]
+  print(new_url)
+except:
+ x=1+1
+END
+)
+
+new_dict=$(python3 - <<END
+try:
+  url = "$url"
+
+  lista = url.split('/')
+
+  lista[-2]=int(lista[-2])-1
+
+  new_url=''
+  del(lista[0])
+  for i in lista:
+      new_url+=f'{i}/'
+  new_url=new_url[1:][:-1]
+
+  print(new_url+'index.html')
+except:
+ x=1+1
+END
+)
+
+new_number=$(python3 - <<END
+try:
+  url = "$url"
+
+  lista = url.split('/')
+
+  pepe=int(lista[-2])-1
+
+  print(pepe)
+
+except:
+ x=1+1
+END
+)
+
+
+rm -r jkanime.net
+
+wget --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" -p $new_urls wget > /dev/null 2>&1
+
+rm -r resultados.txt
+
+grep -oP '(?<=<div class="title">)[^<]+(?=</div>)' $new_dict > resultados.txt
+
+
+num_resultados=$(wc -l < resultados.txt)
+
+echo -e "Pagina: $new_number ${NC}"
+echo -e "Resultados para: $query"
+opcion=$( (cat "resultados.txt"; echo "Siguiente"; echo "Anterior"; echo "Salir") | tac | fzf --prompt="Selecciona una opción: " --height=19 --border --info=inline --margin=1,1,0,0)
+
+
+if [[ "$opcion" == "Siguiente" ]]; then
+  pagina_siguiente $new_urls
+elif [[ "$opcion" == "Anterior" ]]; then
+  pagina_anterior $new_urls
+elif [[ "$opcion" == "Salir" ]]; then
+  clear
+  main
+fi
+
+}
+
+if [[ -z "$arg1" ]]; then
+  read -p "Buscar Anime: " oracion
+  clear
+else
+  oracion="$arg1"
+fi
+
+
+query=$(echo $oracion | tr ' ' '_')
+
+
+wget --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" -p https://jkanime.net/buscar/$query/ > /dev/null 2>&1
+
+
+input_file="jkanime.net/buscar/$query/index.html"
+
+
+if [[ ! -f $input_file ]]; then
+  echo "Archivo $input_file no encontrado."
+  exit 1
+fi
+
+grep -oP '<h5><a\s+href="[^"]*">\K.*?(?=</a></h5>)' $input_file | sed 's/&quot;//g' > resultados.txt
+
+
+
+num_resultados=$(wc -l < resultados.txt)
+
+
+num_animes=$(wc -l < resultados.txt)
+if [[ "$num_animes" == "1" ]]; then
+  opcion=$(cat resultados.txt)
+  echo Cargando...
+else
+  echo -e "Pagina: 1 ${NC}"
+
+  echo -e "Resultados para: $query"
+  opcion=$( (cat "resultados.txt"; echo "Salir") | tac | fzf --prompt="Selecciona una opción: " --height=~20 --border --info=inline --margin=1,1,0,0)
+  clear
+fi
+
+if [[ "$opcion" == "Siguiente" ]]; then
+  pagina_siguiente "https://jkanime.net/buscar/$query/"
+elif [[ "$opcion" == "Anterior" ]]; then
+  pagina_anterior "https://jkanime.net/buscar/$query/"
+elif [[ "$opcion" == "Salir" ]]; then
+  main
+fi
+
+clear
+
+titulo_elegido=$opcion
+
+quer=$(echo "$titulo_elegido" | tr -cd '[:alnum:] -')
+quer=$(echo $quer| tr ' ' '-')
+qee=$(echo "$quer" | tr '[:upper:]' '[:lower:]')
+nuevaurl="https://jkanime.net/$qee"
+
+
+
+echo Cargando...
+
+JSON_URL="https://zhuchii.github.io/ani-es/excepciones.json"
+
+
+value=$(curl -s "$JSON_URL")
+
+if [ -n "$value" ] && [ "$value" != "null" ]; then
+
+
+    extracted_value=$(echo "$value" | jq -r --arg url "$nuevaurl" '.[$url]')
+
+    if [ -n "$extracted_value" ] && [ "$extracted_value" != "null" ]; then
+        nuevaurl=$extracted_value
+    else
+        echo ""
+    fi
+else
+    echo ""
+fi
+nuevaurl="${nuevaurl%%/}"
+rm -r jkanime.net > /dev/null 2>&1
+
+wget --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" -p $nuevaurl > /dev/null 2>&1
+
+url_without_https="${nuevaurl/https:\/\//}"
+
+if [ -d "$url_without_https" ]; then
+    token=$(curl -s -c cookies.txt "$nuevaurl" | grep -oP 'meta name="csrf-token" content="\K[^"]+')
+    api_url_base=$(grep -oP "url:\s*'\Khttps://jkanime\.net/ajax/episodes/\d+/?" "$url_without_https/index.html")
+
+    if [ ! -z "$api_url_base" ] && [ ! -z "$token" ]; then
+        
+        json_response=$(curl -s -X POST "${api_url_base}" \
+            -b cookies.txt \
+            -H "X-Requested-With: XMLHttpRequest" \
+            -H "X-CSRF-TOKEN: $token" \
+            --data-urlencode "_token=$token")
+        
+        num_episodios=$(echo "$json_response" | grep -oP '"total":\s*\K\d+')
+    fi
+else
+    token=$(curl -s -c cookies.txt "$nuevaurl" | grep -oP 'meta name="csrf-token" content="\K[^"]+')
+    api_url_base=$(grep -oP "url:\s*'\Khttps://jkanime\.net/ajax/episodes/\d+/?" "$url_without_https")
+
+    if [ ! -z "$api_url_base" ] && [ ! -z "$token" ]; then
+        
+        json_response=$(curl -s -X POST "${api_url_base}" \
+            -b cookies.txt \
+            -H "X-Requested-With: XMLHttpRequest" \
+            -H "X-CSRF-TOKEN: $token" \
+            --data-urlencode "_token=$token")
+
+        num_episodios=$(echo "$json_response" | grep -oP '"total":\s*\K\d+')
+    fi
+fi
+
+[ -f cookies.txt ] && rm cookies.txt
+
+clear
+echo -e "Anime: $GREEN $titulo_elegido $WHITE"
+  last_cap=$(python3 - <<END
+import sqlite3
+import os
+
+def conection():
+    home_dir = os.path.expanduser("~")
+    db_path = os.path.join(home_dir, "ani-es", "history.db")
+    return sqlite3.connect(db_path)
+
+anime = '$titulo_elegido'
+
+conect = conection()
+cursor = conect.cursor()
+
+cursor.execute('''SELECT count(name) FROM sqlite_master WHERE type='table' AND name='animes' ''')
+if cursor.fetchone()[0] == 0:
+    cursor.execute('''
+        CREATE TABLE animes (
+            id INTEGER PRIMARY KEY,
+            anime TEXT,
+            last_cap TEXT,
+            progress TEXT
+        )
+    ''')
+conect.commit()
+
+cursor.execute('SELECT * FROM animes WHERE anime = ?', (anime,))
+row = cursor.fetchone()
+if row:
+    print(row[2])
+END
+)
+
+if [ -d "$url_without_https" ]; then
+    tipo=$(grep -oP '<span>Tipo:</span> \K[^<]+' $url_without_https/index.html | tail -n 1)
+else
+    tipo=$(grep -oP '<span>Tipo:</span> \K[^<]+' $url_without_https | tail -n 1)
+fi
+
+
+
+echo -e "Ultimo episodio visto: $last_cap"
+
+
+CONTENIDO=$(curl -s -L "$nuevaurl")
+
+if [ -z "$num_episodios" ]; then
+    num_episodios=0
+fi
+
+if [ -z "$num_episodios" ]; then
+  echo -e "Enlace ${CYAN}$nuevaurl${NC} no válido. Por favor ve a ${GREEN} https://github.com/Zhuchii/ani-es ${NC} y abre un issue especificando el enlace y el anime que estabas intentando ver. Lo corregiré y actualizaré el script ;)"
+  echo "$url_without_https"
+  exit
+fi
+
+
+
+if [ "$CONTINUE" == 1 ]; then
+  capi=$last_cap
+  progress=$(python3 - <<END
+import sqlite3
+import os
+
+def conection():
+    home_dir = os.path.expanduser("~")
+    db_path = os.path.join(home_dir, "ani-es", "history.db")
+    return sqlite3.connect(db_path)
+
+conect = conection()
+cursor = conect.cursor()
+
+cursor.execute(f'SELECT progress from animes WHERE anime="$titulo_elegido"')
+
+response=cursor.fetchone()
+
+print(response[0])
+END
+)
+
+else
+  capi=$(seq 1 "$num_episodios" | fzf \
+    --prompt="Episodio: " \
+    --height=~30 \
+    --border \
+    --reverse)
+fi
+
+clear
+
+if [ "$tipo" == "Pelicula" ]; then
+  capi="pelicula"
+fi
+
+
+capurl="$nuevaurl/$capi"
+
+
+videocap(){
+capa=$1
+
+wget --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" -p "$capa" > /dev/null 2>&1
+
+primera_carpeta=$(ls -d jkanime.net/*/ 2> /dev/null | head -n 1)
+primera_carpeta="${primera_carpeta%/}"
+pes=$(find "$primera_carpeta/" -maxdepth 1 -type f -printf "%f\n" | head -n 1)
+archivor="${url_without_https}/${capi}"
+archivor="${archivor//\/\//\/}"
+
+tre=$(grep -oP '<iframe[^>]+src="/jk.php\K[^"]*' "$archivor")
+# jkplayer (nuevo)
+if ls jkanime.net/jkplayer/um* 1> /dev/null 2>&1; then
+  src_contenido=$(grep -A 1 "video: {" jkanime.net/jkplayer/um* | sed -n -e "s/.*url: '\(.*\)',.*/\1/p" -e "s/.*type: '\(.*\)'.*/\1/p")
+
+# jk.php (antiguo) por si acaso
+elif ls jkanime.net/jk.php* 1> /dev/null 2>&1; then
+  wget --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" -p "$tre" > /dev/null 2>&1
+  src_contenido=$(grep -A 1 "video: {" jkanime.net/jk.php* | sed -n -e "s/.*url: '\(.*\)',.*/\1/p" -e "s/.*type: '\(.*\)'.*/\1/p")
+
+# Mediafire u Otros Servidores
+else
+  servers_line=$(grep -oP 'var servers = \[.*?\];' "$archivor")
+
+  if [ -n "$servers_line" ]; then
+    servers_list=$(python3 - <<END
+import json
+import base64
+import re
+try:
+    data_string = '''$servers_line'''
+    json_str = re.search(r'var servers = (.+?);', data_string).group(1)
+    servers = json.loads(json_str)
+    for s in servers:
+        remote = base64.b64decode(s['remote']).decode('utf-8')
+        print(f"{s['server']}|{remote}")
+except:
+    pass
+END
+    )
+    
+    if [ -n "$servers_list" ]; then
+        server_choice=$(echo "$servers_list" | awk -F '|' '{print $1}' | fzf --prompt="Selecciona Servidor: " --height=10 --border --reverse)
+        src_contenid=$(echo "$servers_list" | grep "^${server_choice}|" | head -n 1 | awk -F '|' '{print $2}')
+        
+        if [ "$server_choice" == "Mediafire" ]; then
+            wget --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36" -p "$src_contenid" > /dev/null 2>&1
+            index=$(find mediafire.com -type f -name "index.html" | head -n 1)
+            if [ -n "$index" ]; then
+                src_contenido=$(grep -oP '(?<=href=")[^"]*' "$index" | grep 'https://download' | head -n 1)
+            fi
+        else
+            src_contenido="$src_contenid"
+        fi
+    else
+        echo ""
+    fi
+  else
+    echo ""
+  fi
+fi
+
+if [ "$tipo" == "Pelicula" ]; then
+  capi=1
+fi
+
+clear
+
+echo "Capitulo: $capi"
+
+rm -r jkanime.net mediafire.com > /dev/null 2>&1
+
+ENV=$(detect_env)
+pos=0
+
+case "$ENV" in
+    wsl)
+        if [ "$DOWNLOAD" == "1" ]; then
+            echo -e "${CYAN}Descargando capítulo ${capi} de ${titulo_elegido}...${NC}"
+            wget --user-agent="Mozilla/5.0" -O "${titulo_elegido}-${capi}.mp4" "$src_contenido"
+            pos=0
+        elif command -v mpv.exe >/dev/null 2>&1; then
+            pos=$(mpv.exe --start=$progress --msg-level=ffmpeg=no --force-media-title="$opcion-$capi" "$src_contenido" | grep -oE 'AV: [0-9]{2}:[0-9]{2}:[0-9]{2}' | tail -n 1  | sed 's/AV: //g' 2>&1)
+        elif command -v mpv >/dev/null 2>&1; then
+            echo -e "${YELLOW}mpv.exe de Windows no encontrado. Fallback a mpv de Ubuntu...${NC}"
+            pos=$(mpv --start=$progress -v --msg-level=ffmpeg=no --force-media-title="$opcion-$capi" "$src_contenido" | grep -oE 'AV: [0-9]{2}:[0-9]{2}:[0-9]{2}' | tail -n 1  | sed 's/AV: //g' 2>&1)
+        else
+            echo "Reproductor mpv no encontrado."
+        fi
+        ;;
+    termux)
+        if pm list packages | grep -q 'org.videolan.vlc'; then
+            am start -a android.intent.action.VIEW -d "$src_contenido" -n org.videolan.vlc/org.videolan.vlc.gui.video.VideoPlayerActivity
+            pos=0
+        else
+            termux-open-url "$src_contenido"
+            pos=0
+        fi
+        ;;
+    linux)
+        if [ "$DOWNLOAD" == "1" ]; then
+            echo -e "${CYAN}Descargando capítulo ${capi} de ${titulo_elegido}...${NC}"
+            wget --user-agent="Mozilla/5.0" -O "${titulo_elegido}-${capi}.mp4" "$src_contenido"
+            pos=0
+        elif command -v mpv >/dev/null 2>&1; then
+            pos=$(mpv --start=$progress -v --msg-level=ffmpeg=no --force-media-title="$opcion-$capi" "$src_contenido" | grep -oE 'AV: [0-9]{2}:[0-9]{2}:[0-9]{2}' | tail -n 1  | sed 's/AV: //g' 2>&1)
+        fi
+        ;;
+esac
+
+python3 - <<END
+import sqlite3
+import os
+
+def conection():
+    home_dir = os.path.expanduser("~")
+    db_path = os.path.join(home_dir, "ani-es", "history.db")
+    return sqlite3.connect(db_path)
+
+anime = '$titulo_elegido'
+capi = '$capi'
+
+progress = "$pos"
+
+
+conect = conection()
+cursor = conect.cursor()
+
+# Crear tabla si no existe
+cursor.execute('''SELECT count(name) FROM sqlite_master WHERE type='table' AND name='animes' ''')
+if cursor.fetchone()[0] == 0:
+    cursor.execute('''
+        CREATE TABLE animes (
+            id INTEGER PRIMARY KEY,
+            anime TEXT,
+            last_cap TEXT,
+            progress TEXT
+        )
+    ''')
+    conect.commit()
+
+
+cursor.execute("PRAGMA table_info(animes)")
+columns = [col[1] for col in cursor.fetchall()]
+
+if "progress" not in columns:
+    cursor.execute("ALTER TABLE animes ADD COLUMN progress TEXT DEFAULT 0")
+    conect.commit()
+
+# Insert / Update
+cursor.execute('SELECT * FROM animes WHERE anime = ?', (anime,))
+row = cursor.fetchone()
+
+if row is None:
+    cursor.execute(
+        'INSERT INTO animes (anime, last_cap, progress) VALUES (?, ?, ?)',
+        (anime, capi, progress)
+    )
+else:
+    if int(row[2]) < int(capi):
+        cursor.execute(
+            "UPDATE animes SET last_cap = ?, progress = ? WHERE anime = ?",
+            (capi, progress, anime)
+        )
+    else:
+        cursor.execute(
+            "UPDATE animes SET progress = ? WHERE anime = ?",
+            (progress, anime)
+        )
+
+conect.commit()
+END
+
+op=$( (echo "Siguiente"; echo "Retroceder"; echo "Atras") | tac | fzf --prompt="Selecciona una opción: " --height=7 --border --info=inline --margin=1,1,0,0)
+
+if [[ "$op" == "Siguiente" ]]; then
+    progress="00:00:00"
+  capi=$((capi + 1))
+python3 - <<END
+import sqlite3
+import os
+
+def conection():
+    home_dir = os.path.expanduser("~")
+    db_path = os.path.join(home_dir, "ani-es", "history.db")
+    return sqlite3.connect(db_path)
+
+anime = '$titulo_elegido'
+capi = '$capi'
+
+conect = conection()
+cursor = conect.cursor()
+
+cursor.execute('''SELECT count(name) FROM sqlite_master WHERE type='table' AND name='animes' ''')
+if cursor.fetchone()[0] == 0:
+    cursor.execute('''
+        CREATE TABLE animes (
+            id INTEGER PRIMARY KEY,
+            anime TEXT,
+            last_cap TEXT,
+            progress TEXT
+        )
+    ''')
+conect.commit()
+cursor.execute('SELECT * FROM animes WHERE anime = ?', (anime,))
+row = cursor.fetchone()
+if row is None:
+  cursor.execute('INSERT INTO animes (anime, last_cap) VALUES (?, ?)', (anime, capi,))
+  conect.commit()
+else:
+  cursor.execute('SELECT *FROM animes WHERE anime = ?', [anime,])
+  row = cursor.fetchone()
+  if int(row[2])<int(capi):
+    cursor.execute("UPDATE animes SET last_cap = ? WHERE anime = ?", (capi, anime))
+    conect.commit()
+conect.commit()
+END
+  videocap "$nuevaurl/$capi"
+elif [[ "$op" == "Retroceder" ]]; then
+  progress="00:00:00"
+  capi=$((capi - 1))
+  videocap "$nuevaurl/$capi"
+elif [[ "$opcion" == "Atras" ]]; then
+
+  main
+fi
+}
+videocap $capurl
+}
+
+
+
+main
+
