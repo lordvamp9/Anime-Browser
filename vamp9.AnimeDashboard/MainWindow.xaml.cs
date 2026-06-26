@@ -17,7 +17,6 @@ namespace vamp9.AnimeDashboard
         private DispatcherTimer _mpvWatcherTimer;
         private Process _trackedMpvProcess;
         private string _lastPlayedAnime;
-        private bool _isEnglish = false;
 
         public MainWindow()
         {
@@ -135,19 +134,9 @@ namespace vamp9.AnimeDashboard
             {
                 string tempScriptPath = Path.Combine(Path.GetTempPath(), "ani-es-search.sh");
                 
-                string scriptContent = "";
-                if (_isEnglish)
-                {
-                    scriptContent = "#!/bin/bash\n" +
-                                    "query=$(echo \"$1\" | tr ' ' '%20')\n" +
-                                    "wget -q --user-agent=\"Mozilla/5.0 (Windows NT 10.0; Win64; x64)\" -O - \"https://gogoanime3.co/search.html?keyword=$query\" | grep -oP '<p class=\"name\"><a href=\"[^\"]*\" title=\"\\K[^\"]*' | sed 's/&quot;//g'\n";
-                }
-                else
-                {
-                    scriptContent = "#!/bin/bash\n" +
-                                    "query=$(echo \"$1\" | tr ' ' '_')\n" +
-                                    "wget -q --user-agent=\"Mozilla/5.0 (Windows NT 10.0; Win64; x64)\" -O - \"https://jkanime.net/buscar/$query/\" | grep -oP '<h5><a\\s+href=\"[^\"]*\">\\K.*?(?=</a></h5>)' | sed 's/&quot;//g'\n";
-                }
+                string scriptContent = "#!/bin/bash\n" +
+                                       "query=$(echo \"$1\" | tr ' ' '_')\n" +
+                                       "wget -q --user-agent=\"Mozilla/5.0 (Windows NT 10.0; Win64; x64)\" -O - \"https://jkanime.net/buscar/$query/\" | grep -oP '<h5><a\\s+href=\"[^\"]*\">\\K.*?(?=</a></h5>)' | sed 's/&quot;//g'\n";
                 
                 File.WriteAllText(tempScriptPath, scriptContent.Replace("\r\n", "\n"));
 
@@ -190,7 +179,7 @@ namespace vamp9.AnimeDashboard
                     }
                 }
 
-                // If scraping fails or returns nothing, just add the literal search query so the user can still launch it via ani-cli/ani-es
+                // If scraping fails or returns nothing, just add the literal search query so the user can still launch it via ani-es
                 if (results.Count == 0)
                 {
                     results.Add(new AnimeEntry { Name = query });
@@ -233,7 +222,7 @@ namespace vamp9.AnimeDashboard
             {
                 // Escapar comillas simples para evitar inyección de comandos en bash
                 string escapedName = animeName.Replace("'", "'\\''");
-                string client = _isEnglish ? "ani-cli" : "ani-es";
+                string client = "ani-es";
                 string args = isContinue ? $"/c start wsl -e bash -ic \"{client} -c '{escapedName}'\"" : $"/c start wsl -e bash -ic \"{client} '{escapedName}'\"";
                 Process.Start(new ProcessStartInfo
                 {
@@ -420,14 +409,6 @@ script-opts-append=osc-timetotal=yes";
                     ConfigEditorOverlay.Visibility = Visibility.Collapsed;
                     SettingsMainPanel.Visibility = Visibility.Visible;
                 }
-            }
-        }
-
-        private void LanguageToggle_Changed(object sender, RoutedEventArgs e)
-        {
-            if (LanguageToggle != null)
-            {
-                _isEnglish = LanguageToggle.IsChecked == true;
             }
         }
     }

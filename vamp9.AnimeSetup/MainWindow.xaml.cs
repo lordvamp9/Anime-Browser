@@ -94,10 +94,8 @@ namespace vamp9.AnimeSetup
             // Check WSL clients
             Log("Verificando clientes en WSL...");
             int checkAniEs = -1;
-            int checkAniCli = -1;
             try { checkAniEs = await RunProcessAsync("wsl", "-- command -v ani-es"); } catch { }
-            try { checkAniCli = await RunProcessAsync("wsl", "-- command -v ani-cli"); } catch { }
-            bool clientsInstalled = (checkAniEs == 0 && checkAniCli == 0);
+            bool clientsInstalled = (checkAniEs == 0);
 
             // Check MPV
             string mpvExtractPath = @"C:\mpv";
@@ -156,41 +154,39 @@ namespace vamp9.AnimeSetup
                 if (string.IsNullOrEmpty(sudoPassword))
                 {
                     await RunProcessAsync("wsl", "-- sudo apt update");
-                    await RunProcessAsync("wsl", "-- sudo DEBIAN_FRONTEND=noninteractive apt install python3 fzf wget curl jq grep sed git yt-dlp -y");
+                    await RunProcessAsync("wsl", "-- sudo DEBIAN_FRONTEND=noninteractive apt install python3 fzf wget curl jq grep sed git -y");
                 }
                 else
                 {
                     await RunProcessAsync("wsl", $"-- bash -c \"echo '{escapedPassword}' | sudo -S apt update\"");
-                    await RunProcessAsync("wsl", $"-- bash -c \"echo '{escapedPassword}' | sudo -S DEBIAN_FRONTEND=noninteractive apt install python3 fzf wget curl jq grep sed git yt-dlp -y\"");
+                    await RunProcessAsync("wsl", $"-- bash -c \"echo '{escapedPassword}' | sudo -S DEBIAN_FRONTEND=noninteractive apt install python3 fzf wget curl jq grep sed git -y\"");
                 }
 
                 Progress.Value = 40;
-                Log("Preparando carpetas locales e instalando ani-es y ani-cli...");
+                Log("Preparando carpetas locales e instalando ani-es...");
                 
                 // Limpiar directorios previos
-                await RunProcessAsync("wsl", $"-- rm -rf {userHome}/ani-es {userHome}/ani-cli");
-                await RunProcessAsync("wsl", $"-- mkdir -p {userHome}/ani-es {userHome}/ani-cli");
+                await RunProcessAsync("wsl", $"-- rm -rf {userHome}/ani-es");
+                await RunProcessAsync("wsl", $"-- mkdir -p {userHome}/ani-es");
 
                 // Intentar descargar por curl (rápido y seguro)
                 Log("Descargando scripts mediante curl...");
                 int curlEsCode = await RunProcessAsync("wsl", $"-- curl -sSL https://raw.githubusercontent.com/Zhuchii/ani-es/main/ani-es -o {userHome}/ani-es/ani-es");
                 int curlJsonCode = await RunProcessAsync("wsl", $"-- curl -sSL https://raw.githubusercontent.com/Zhuchii/ani-es/main/excepciones.json -o {userHome}/ani-es/excepciones.json");
-                int curlCliCode = await RunProcessAsync("wsl", $"-- curl -sSL https://raw.githubusercontent.com/pystardust/ani-cli/master/ani-cli -o {userHome}/ani-cli/ani-cli");
 
-                bool curlSuccess = (curlEsCode == 0 && curlJsonCode == 0 && curlCliCode == 0);
+                bool curlSuccess = (curlEsCode == 0 && curlJsonCode == 0);
 
                 if (!curlSuccess)
                 {
                     Log("Curl falló o no descargó completo. Intentando fallback mediante git clone (shallow)...");
                     // Limpiar directorios antes de clonar
-                    await RunProcessAsync("wsl", $"-- rm -rf {userHome}/ani-es {userHome}/ani-cli");
+                    await RunProcessAsync("wsl", $"-- rm -rf {userHome}/ani-es");
                     
                     int cloneEs = await RunProcessAsync("wsl", $"-- git clone --depth 1 --no-tags --single-branch https://github.com/Zhuchii/ani-es.git {userHome}/ani-es");
-                    int cloneCli = await RunProcessAsync("wsl", $"-- git clone --depth 1 --no-tags --single-branch https://github.com/pystardust/ani-cli.git {userHome}/ani-cli");
 
-                    if (cloneEs != 0 || cloneCli != 0)
+                    if (cloneEs != 0)
                     {
-                        throw new Exception("No se pudieron descargar los scripts de ani-es/ani-cli por ningún método (curl/git clone). Verifica tu conexión a internet.");
+                        throw new Exception("No se pudieron descargar los scripts de ani-es por ningún método (curl/git clone). Verifica tu conexión a internet.");
                     }
                 }
 
@@ -205,10 +201,9 @@ namespace vamp9.AnimeSetup
                     // Copiar ejecutables a /usr/local/bin
                     await RunProcessAsync("wsl", $"-- sudo cp {userHome}/ani-es/ani-es /usr/local/bin/ani-es");
                     await RunProcessAsync("wsl", $"-- sudo cp {userHome}/ani-es/excepciones.json /usr/local/bin/excepciones.json");
-                    await RunProcessAsync("wsl", $"-- sudo cp {userHome}/ani-cli/ani-cli /usr/local/bin/ani-cli");
                     
                     // Permisos de ejecución
-                    await RunProcessAsync("wsl", "-- sudo chmod +x /usr/local/bin/ani-es /usr/local/bin/ani-cli");
+                    await RunProcessAsync("wsl", "-- sudo chmod +x /usr/local/bin/ani-es");
                     
                     // Crear base de datos de historial por defecto si no existe
                     await RunProcessAsync("wsl", $"-- touch {userHome}/ani-es/history.db");
@@ -222,17 +217,16 @@ namespace vamp9.AnimeSetup
                     // Copiar ejecutables usando sudo -S
                     await RunProcessAsync("wsl", $"-- bash -c \"echo '{escapedPassword}' | sudo -S cp {userHome}/ani-es/ani-es /usr/local/bin/ani-es\"");
                     await RunProcessAsync("wsl", $"-- bash -c \"echo '{escapedPassword}' | sudo -S cp {userHome}/ani-es/excepciones.json /usr/local/bin/excepciones.json\"");
-                    await RunProcessAsync("wsl", $"-- bash -c \"echo '{escapedPassword}' | sudo -S cp {userHome}/ani-cli/ani-cli /usr/local/bin/ani-cli\"");
                     
                     // Permisos de ejecución
-                    await RunProcessAsync("wsl", $"-- bash -c \"echo '{escapedPassword}' | sudo -S chmod +x /usr/local/bin/ani-es /usr/local/bin/ani-cli\"");
+                    await RunProcessAsync("wsl", $"-- bash -c \"echo '{escapedPassword}' | sudo -S chmod +x /usr/local/bin/ani-es\"");
                     
                     // Crear base de datos de historial por defecto si no existe
                     await RunProcessAsync("wsl", $"-- touch {userHome}/ani-es/history.db");
                     await RunProcessAsync("wsl", $"-- chmod 777 {userHome}/ani-es/history.db");
                 }
                 
-                Log("ani-es y ani-cli instalados correctamente en WSL.");
+                Log("ani-es instalado correctamente en WSL.");
             }
             else
             {
