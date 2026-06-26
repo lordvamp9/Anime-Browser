@@ -130,10 +130,9 @@ namespace vamp9.AnimeSetup
                 Log("Cerrando procesos bloqueados previos en WSL...");
                 try
                 {
-                    await RunProcessAsync("wsl", "-- sudo pkill -f git || true");
-                    await RunProcessAsync("wsl", "-- sudo pkill -f apt || true");
-                    await RunProcessAsync("wsl", "-- sudo pkill -f dpkg || true");
-                    await RunProcessAsync("wsl", "-- pkill -f git || true");
+                    await RunProcessAsync("wsl", "-- pkill -f git");
+                    await RunProcessAsync("wsl", "-- pkill -f apt");
+                    await RunProcessAsync("wsl", "-- pkill -f dpkg");
                 }
                 catch { }
 
