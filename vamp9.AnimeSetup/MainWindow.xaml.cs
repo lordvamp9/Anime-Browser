@@ -121,6 +121,22 @@ namespace vamp9.AnimeSetup
                 StatusText.Text = "Instalando dependencias en WSL...";
                 Log("Iniciando configuración de WSL...");
 
+                Log("Obteniendo nombre de usuario de WSL...");
+                string wslUser = await GetWslUsernameAsync();
+                Log($"Usuario WSL detectado: {wslUser}");
+                string userHome = $"/home/{wslUser}";
+
+                // Liberar bloqueos previos de apt/dpkg y git
+                Log("Cerrando procesos bloqueados previos en WSL...");
+                try
+                {
+                    await RunProcessAsync("wsl", "-- sudo pkill -f git || true");
+                    await RunProcessAsync("wsl", "-- sudo pkill -f apt || true");
+                    await RunProcessAsync("wsl", "-- sudo pkill -f dpkg || true");
+                    await RunProcessAsync("wsl", "-- pkill -f git || true");
+                }
+                catch { }
+
                 Log("Verificando si sudo requiere contraseña en WSL...");
                 int checkSudo = await RunProcessAsync("wsl", "-- sudo -n true");
                 string sudoPassword = "";
@@ -150,23 +166,73 @@ namespace vamp9.AnimeSetup
                 }
 
                 Progress.Value = 40;
-                Log("Clonando repositorios ani-es y ani-cli...");
-                await RunProcessAsync("wsl", "-- rm -rf ~/ani-es ~/ani-cli");
-                await RunProcessAsync("wsl", "-- git clone https://github.com/Zhuchii/ani-es.git ~/ani-es");
-                await RunProcessAsync("wsl", "-- git clone https://github.com/pystardust/ani-cli.git ~/ani-cli");
+                Log("Preparando carpetas locales e instalando ani-es y ani-cli...");
+                
+                // Limpiar directorios previos
+                await RunProcessAsync("wsl", $"-- rm -rf {userHome}/ani-es {userHome}/ani-cli");
+                await RunProcessAsync("wsl", $"-- mkdir -p {userHome}/ani-es {userHome}/ani-cli");
+
+                // Intentar descargar por curl (rápido y seguro)
+                Log("Descargando scripts mediante curl...");
+                int curlEsCode = await RunProcessAsync("wsl", $"-- curl -sSL https://raw.githubusercontent.com/Zhuchii/ani-es/main/ani-es -o {userHome}/ani-es/ani-es");
+                int curlJsonCode = await RunProcessAsync("wsl", $"-- curl -sSL https://raw.githubusercontent.com/Zhuchii/ani-es/main/excepciones.json -o {userHome}/ani-es/excepciones.json");
+                int curlCliCode = await RunProcessAsync("wsl", $"-- curl -sSL https://raw.githubusercontent.com/pystardust/ani-cli/master/ani-cli -o {userHome}/ani-cli/ani-cli");
+
+                bool curlSuccess = (curlEsCode == 0 && curlJsonCode == 0 && curlCliCode == 0);
+
+                if (!curlSuccess)
+                {
+                    Log("Curl falló o no descargó completo. Intentando fallback mediante git clone (shallow)...");
+                    // Limpiar directorios antes de clonar
+                    await RunProcessAsync("wsl", $"-- rm -rf {userHome}/ani-es {userHome}/ani-cli");
+                    
+                    int cloneEs = await RunProcessAsync("wsl", $"-- git clone --depth 1 --no-tags --single-branch https://github.com/Zhuchii/ani-es.git {userHome}/ani-es");
+                    int cloneCli = await RunProcessAsync("wsl", $"-- git clone --depth 1 --no-tags --single-branch https://github.com/pystardust/ani-cli.git {userHome}/ani-cli");
+
+                    if (cloneEs != 0 || cloneCli != 0)
+                    {
+                        throw new Exception("No se pudieron descargar los scripts de ani-es/ani-cli por ningún método (curl/git clone). Verifica tu conexión a internet.");
+                    }
+                }
 
                 Progress.Value = 50;
-                Log("Instalando clientes (Español e Inglés)...");
+                Log("Instalando clientes en /usr/local/bin...");
+                
+                // Comandos de instalación manual (evita que install.sh ejecute apt-get otra vez)
                 if (string.IsNullOrEmpty(sudoPassword))
                 {
-                    await RunProcessAsync("wsl", "-- bash -c \"cd ~/ani-es && chmod +x install.sh && ./install.sh\"");
-                    await RunProcessAsync("wsl", "-- sudo cp ~/ani-cli/ani-cli /usr/local/bin/ani-cli && sudo chmod +x /usr/local/bin/ani-cli");
+                    // Crear carpeta de datos
+                    await RunProcessAsync("wsl", $"-- mkdir -p {userHome}/ani-es");
+                    // Copiar ejecutables a /usr/local/bin
+                    await RunProcessAsync("wsl", $"-- sudo cp {userHome}/ani-es/ani-es /usr/local/bin/ani-es");
+                    await RunProcessAsync("wsl", $"-- sudo cp {userHome}/ani-es/excepciones.json /usr/local/bin/excepciones.json");
+                    await RunProcessAsync("wsl", $"-- sudo cp {userHome}/ani-cli/ani-cli /usr/local/bin/ani-cli");
+                    
+                    // Permisos de ejecución
+                    await RunProcessAsync("wsl", "-- sudo chmod +x /usr/local/bin/ani-es /usr/local/bin/ani-cli");
+                    
+                    // Crear base de datos de historial por defecto si no existe
+                    await RunProcessAsync("wsl", $"-- touch {userHome}/ani-es/history.db");
+                    await RunProcessAsync("wsl", $"-- chmod 777 {userHome}/ani-es/history.db");
                 }
                 else
                 {
-                    await RunProcessAsync("wsl", $"-- bash -c \"echo '{escapedPassword}' | sudo -S bash -c 'cd ~/ani-es && chmod +x install.sh && ./install.sh'\"");
-                    await RunProcessAsync("wsl", $"-- bash -c \"echo '{escapedPassword}' | sudo -S bash -c 'cp ~/ani-cli/ani-cli /usr/local/bin/ani-cli && chmod +x /usr/local/bin/ani-cli'\"");
+                    // Crear carpeta de datos
+                    await RunProcessAsync("wsl", $"-- mkdir -p {userHome}/ani-es");
+                    
+                    // Copiar ejecutables usando sudo -S
+                    await RunProcessAsync("wsl", $"-- bash -c \"echo '{escapedPassword}' | sudo -S cp {userHome}/ani-es/ani-es /usr/local/bin/ani-es\"");
+                    await RunProcessAsync("wsl", $"-- bash -c \"echo '{escapedPassword}' | sudo -S cp {userHome}/ani-es/excepciones.json /usr/local/bin/excepciones.json\"");
+                    await RunProcessAsync("wsl", $"-- bash -c \"echo '{escapedPassword}' | sudo -S cp {userHome}/ani-cli/ani-cli /usr/local/bin/ani-cli\"");
+                    
+                    // Permisos de ejecución
+                    await RunProcessAsync("wsl", $"-- bash -c \"echo '{escapedPassword}' | sudo -S chmod +x /usr/local/bin/ani-es /usr/local/bin/ani-cli\"");
+                    
+                    // Crear base de datos de historial por defecto si no existe
+                    await RunProcessAsync("wsl", $"-- touch {userHome}/ani-es/history.db");
+                    await RunProcessAsync("wsl", $"-- chmod 777 {userHome}/ani-es/history.db");
                 }
+                
                 Log("ani-es y ani-cli instalados correctamente en WSL.");
             }
             else
@@ -295,6 +361,53 @@ sub-shadow-offset=2";
             process.Exited += (s, e) =>
             {
                 tcs.SetResult(process.ExitCode);
+                process.Dispose();
+            };
+
+            process.Start();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            return await tcs.Task;
+        }
+
+        private async Task<string> GetWslUsernameAsync()
+        {
+            try
+            {
+                string result = await RunProcessWithOutputAsync("wsl", "-- whoami");
+                return string.IsNullOrEmpty(result) ? "root" : result;
+            }
+            catch
+            {
+                return "root";
+            }
+        }
+
+        private async Task<string> RunProcessWithOutputAsync(string fileName, string arguments)
+        {
+            var tcs = new TaskCompletionSource<string>();
+            var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = fileName,
+                    Arguments = arguments,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                },
+                EnableRaisingEvents = true
+            };
+
+            string output = "";
+            process.OutputDataReceived += (s, e) => { if (e.Data != null) output += e.Data + "\n"; };
+            process.ErrorDataReceived += (s, e) => { if (e.Data != null) Log($"[WSL ERROR] {e.Data}"); };
+
+            process.Exited += (s, e) =>
+            {
+                tcs.SetResult(output.Trim());
                 process.Dispose();
             };
 
